@@ -158,7 +158,7 @@ class KokoroTTSStream(tts.ChunkedStream):
         self._client = client
         self._opts = opts
 
-    async def _run(self):
+    async def _run(self, output_emitter=None):
         """Run the TTS synthesis."""
         oai_stream = self._client.audio.speech.with_streaming_response.create(
             input=self.input_text,

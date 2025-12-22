@@ -13,7 +13,7 @@ from livekit.agents.voice import ModelSettings
 from livekit import rtc 
 from livekit.agents.llm.chat_context import ImageContent 
 
-from .memory import AgentMemoryManager
+# from .memory import AgentMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,11 @@ class ConversifyAgent(Agent):
         
         # Initialize memory handler using config if enabled
         self.memory_handler = None
-        if memory_config['use']:
-            self.memory_handler = AgentMemoryManager(
-                participant_identity=self.participant_identity,
-                config=config 
-            )
+        #if memory_config['use']:
+        #    self.memory_handler = AgentMemoryManager(
+        #        participant_identity=self.participant_identity,
+        #        config=config 
+        #    )
         
         logger.info(f"ConversifyAgent initialized for identity: {self.participant_identity}. Memory: {'Enabled' if self.memory_handler else 'Disabled'}")
 

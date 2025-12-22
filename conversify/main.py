@@ -9,6 +9,7 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
+    JobExecutorType,
     RoomInputOptions,
     RoomOutputOptions,
     WorkerOptions,
@@ -179,6 +180,7 @@ def main():
         job_memory_warn_mb=worker_config['job_memory_warn_mb'],
         load_threshold=worker_config['load_threshold'],
         job_memory_limit_mb=worker_config['job_memory_limit_mb'],
+        job_executor_type=JobExecutorType.THREAD,
     )
 
     # Run the CLI application

@@ -11,28 +11,29 @@ agent:
 
 stt:
   whisper:
-    language: "en"                      
-    model: "deepdml/faster-whisper-large-v3-turbo-ct2" 
-    device: "cuda"                     
-    compute_type: "float16"             
-    model_cache_directory: "conversify/data/models_cache"  
-    warmup_audio: "conversify/data/warmup_audio.wav"  
+    model: "small"
+    device: "cpu" # Changed from cuda
+    compute_type: "int8"  # Changed for CPU
+    language: "en"
+    model_cache_directory: "./models/whisper"
+    warmup_audio: ""
 
 llm:
-  base_url: "http://127.0.0.1:30000/v1" 
-  api_key: "NULL"                      
-  model: "Qwen/Qwen2.5-VL-7B-Instruct-AWQ"                 
-  temperature: 0.4                  
+  base_url: "http://localhost:11434/v1"
+  model: "qwen2.5vl:3b"
+  api_key: "ollama"
+  temperature: 0.7
+  max_tokens: 1024
   parallel_tool_calls: false
   tool_choice: "auto"
 
 tts:
   kokoro:
-    base_url: "http://0.0.0.0:8880/v1" 
-    api_key: "NULL"                     
-    model: "tts-1"                      
-    voice: "af_heart"                   
-    speed: 1.0     
+    base_url: "http://localhost:8880/v1"
+    voice: "af_bella"
+    model: "kokoro"
+    speed: 1.0
+    api_key: "not-needed"   
 
 vad:
   min_speech_duration: 0.20             # Minimum duration (seconds) for speech detection
@@ -44,13 +45,16 @@ vad:
   sample_rate: 16000  
 
 vision:
-  use: true                            
-  video_frame_interval: 0.2   
+  use: true
+  # Use same model for vision
+  model: "qwen2.5vl:3b"
+  base_url: "http://localhost:11434/v1"
+  api_key: "ollama"
+  video_frame_interval: 1.0   
 
 memory:
-  use: false                             
-  dir: "conversify/data/memory_store"              
-  load_last_n: 6       
+  use: false
+  dir: "./memory"     
 
 embedding:
   vllm_model_name: "mixedbread-ai/mxbai-embed-large-v1"                             

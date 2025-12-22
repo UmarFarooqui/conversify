@@ -3,7 +3,10 @@ import os
 from typing import List, Any, Dict, Optional, Callable
 
 import numpy as np
-from vllm import LLM
+try:
+    from vllm import LLM
+except ImportError:
+    LLM = None  # Memory disabled, vllm not needed
 from pydantic import BaseModel, Field
 
 from memoripy import MemoryManager, JSONStorage, ChatModel, EmbeddingModel
