@@ -161,10 +161,15 @@ class ConversifyAgent(Agent):
                     yield cleaned_chunk
             
             # Pass self as the first parameter to the default.tts_node method
-            async for frame in self.default.tts_node(self, text_stream(), model_settings):
-                yield frame
-            logger.debug("TTS node finished streaming audio frames.")
+            try:
+                async for frame in self.default.tts_node(self, text_stream(), model_settings):
+                    yield frame
+                logger.debug("TTS node finished streaming audio frames.")
+            except Exception as e:
+                logger.error(f"TTS node error: {e}", exc_info=True)
         else:
-            logger.info("No text content left after cleaning for TTS.")
+            logger.warning("No text content left after cleaning for TTS - skipping synthesis.")
+            # Return empty generator to avoid AudioEmitter errors
+            return
 
     

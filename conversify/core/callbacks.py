@@ -43,7 +43,7 @@ def metrics_callback(session: AgentSession):
             tts_ttfb = 0
 
 
-async def shutdown_callback(agent: ConversifyAgent, video_task: asyncio.Task | None):
+async def shutdown_callback(agent: ConversifyAgent, video_task: asyncio.Task | None, avatar_session=None):
     """Handles graceful shutdown logic: cancels tasks, logs usage, saves memory."""
     logger.info("Application shutdown initiated")
     
@@ -58,6 +58,19 @@ async def shutdown_callback(agent: ConversifyAgent, video_task: asyncio.Task | N
             logger.info("Video processing task was already cancelled or finished.")
         except Exception as e:
             logger.error(f"Error during video task cancellation: {e}", exc_info=True)
+    
+    # Close avatar session if active
+    if avatar_session:
+        logger.info("Closing avatar session...")
+        try:
+            # Use close() instead of aclose() for bithuman avatar
+            if hasattr(avatar_session, 'close'):
+                await avatar_session.close()
+            elif hasattr(avatar_session, 'aclose'):
+                await avatar_session.aclose()
+            logger.info("Avatar session closed.")
+        except Exception as e:
+            logger.error(f"Error closing avatar session: {e}", exc_info=True)
 
     # Log usage summary
     summary: Dict[str, Any] = usage_collector.get_summary()

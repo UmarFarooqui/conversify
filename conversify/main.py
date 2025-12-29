@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 from dotenv import load_dotenv
 from typing import Dict, Any
 from openai import AsyncClient
@@ -23,6 +24,15 @@ from livekit.plugins import silero
 from livekit.agents.types import NOT_GIVEN
 from livekit.plugins import noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+try:
+    from livekit.plugins import bithuman
+    from PIL import Image
+    BITHUMAN_AVAILABLE = True
+except ImportError:
+    BITHUMAN_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.debug("bithuman plugin not available. Install with: pip install 'livekit-agents[bithuman,images]'")
 
 from .models.tts import KokoroTTS
 from .models.stt import WhisperSTT
@@ -93,6 +103,47 @@ async def entrypoint(ctx: JobContext, config: Dict[str, Any]):
     )
     logger.info("AgentSession created.")
 
+    # Initialize bithuman avatar if configured
+    avatar_session = None
+    avatar_config = config.get('avatar', {})
+    if avatar_config.get('use', False) and BITHUMAN_AVAILABLE:
+        logger.info("Initializing bitHuman avatar...")
+        bithuman_config = avatar_config['bithuman']
+        
+        # Get API secret from environment
+        api_secret = os.getenv('BITHUMAN_API_SECRET', bithuman_config.get('api_secret', ''))
+        if not api_secret or api_secret == 'BITHUMAN_API_SECRET':
+            logger.warning("BITHUMAN_API_SECRET not set in environment. Avatar will not be initialized.")
+        else:
+            try:
+                # Determine which avatar method to use
+                if bithuman_config.get('avatar_id'):
+                    avatar_session = bithuman.AvatarSession(
+                        model=bithuman_config['model'],
+                        avatar_id=bithuman_config['avatar_id']
+                    )
+                    logger.info(f"Avatar initialized with avatar_id: {bithuman_config['avatar_id']}")
+                elif bithuman_config.get('model_path'):
+                    avatar_session = bithuman.AvatarSession(
+                        model=bithuman_config['model'],
+                        model_path=bithuman_config['model_path']
+                    )
+                    logger.info(f"Avatar initialized with model_path: {bithuman_config['model_path']}")
+                elif bithuman_config.get('avatar_image'):
+                    avatar_image_path = bithuman_config['avatar_image']
+                    avatar_session = bithuman.AvatarSession(
+                        model=bithuman_config['model'],
+                        avatar_image=Image.open(avatar_image_path).convert("RGB")
+                    )
+                    logger.info(f"Avatar initialized with image: {avatar_image_path}")
+                else:
+                    logger.warning("No avatar configuration method specified (avatar_id, model_path, or avatar_image).")
+            except Exception as e:
+                logger.error(f"Failed to initialize bitHuman avatar: {e}")
+                avatar_session = None
+    elif avatar_config.get('use', False) and not BITHUMAN_AVAILABLE:
+        logger.warning("Avatar enabled in config but bithuman plugin not installed. Install with: pip install 'livekit-agents[bithuman,images]'")
+
     # Start the video processing loop if configured
     video_task: asyncio.Task | None = None
     vision_config = config['vision']
@@ -117,19 +168,44 @@ async def entrypoint(ctx: JobContext, config: Dict[str, Any]):
     )
 
     # Register the shutdown callback 
-    ctx.add_shutdown_callback(lambda: shutdown_callback(agent, video_task))
+    ctx.add_shutdown_callback(lambda: shutdown_callback(agent, video_task, avatar_session))
     logger.info("Shutdown callback registered.")
+
+    # Start avatar session if configured
+    if avatar_session:
+        logger.info("Starting bitHuman avatar session...")
+        try:
+            await avatar_session.start(session, room=ctx.room)
+            logger.info("Avatar session started successfully.")
+        except Exception as e:
+            logger.error(f"Failed to start avatar session: {e}")
 
     # Start the agent session
     logger.info("Starting agent session...")
-    await session.start(
-        agent=agent,
-        room=ctx.room,
-        room_input_options=RoomInputOptions(
-            noise_cancellation=noise_cancellation.BVC() if config['agent']['use_background_noise_removal'] else NOT_GIVEN,
-        ),
-        room_output_options=RoomOutputOptions(transcription_enabled=True),
-    )
+    
+    # When using avatar, disable audio output (avatar handles it)
+    from livekit.agents.voice import room_io
+    
+    if avatar_session:
+        logger.info("Avatar detected: starting session with audio_output=False")
+        await session.start(
+            agent=agent,
+            room=ctx.room,
+            room_input_options=RoomInputOptions(
+                noise_cancellation=noise_cancellation.BVC() if config['agent']['use_background_noise_removal'] else NOT_GIVEN,
+            ),
+            room_output_options=RoomOutputOptions(transcription_enabled=True),
+            room_options=room_io.RoomOptions(audio_output=False),
+        )
+    else:
+        await session.start(
+            agent=agent,
+            room=ctx.room,
+            room_input_options=RoomInputOptions(
+                noise_cancellation=noise_cancellation.BVC() if config['agent']['use_background_noise_removal'] else NOT_GIVEN,
+            ),
+            room_output_options=RoomOutputOptions(transcription_enabled=True),
+        )
     
     if config['agent']['use_background_audio']:
         background_audio = BackgroundAudioPlayer(

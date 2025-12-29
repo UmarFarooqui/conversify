@@ -23,7 +23,7 @@ llm:
   model: "qwen2.5vl:3b"
   api_key: "ollama"
   temperature: 0.7
-  max_tokens: 1024
+  max_tokens: 256
   parallel_tool_calls: false
   tool_choice: "auto"
 
@@ -50,7 +50,16 @@ vision:
   model: "qwen2.5vl:3b"
   base_url: "http://localhost:11434/v1"
   api_key: "ollama"
-  video_frame_interval: 1.0   
+  video_frame_interval: 30.0  # Process frames every 30 seconds instead of every 1 second
+
+avatar:
+  use: true
+  bithuman:
+    api_secret: "BITHUMAN_API_SECRET"  # Set in .env.local as BITHUMAN_API_SECRET
+    model: "expression"  # Options: 'expression' (dynamic) or 'essence' (predefined)
+    avatar_image: "./models/tech_support.jpg"  # Path to avatar image
+    # avatar_id: ""  # Alternative: use existing avatar ID from bitHuman console
+    # model_path: ""  # Alternative: path to .imx model file
 
 memory:
   use: false
