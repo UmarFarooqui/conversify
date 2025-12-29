@@ -27,7 +27,8 @@ class ConversifyAgent(Agent):
     def __init__(self, 
                  participant_identity: str,
                  shared_state: Dict[str, Any],
-                 config: Dict[str, Any]) -> None: 
+                 config: Dict[str, Any],
+                 avatar_enabled: bool = False) -> None: 
         
         agent_config = config['agent']
         memory_config = config['memory']
@@ -43,6 +44,7 @@ class ConversifyAgent(Agent):
         
         self.config = config 
         self.shared_state = shared_state
+        self.avatar_enabled = avatar_enabled  # Track if avatar is being used
         self.vision_keywords = ['see', 'look', 'picture', 'image', 'visual', 'color', 'this', 'object', 'view', 'frame', 'screen', 'desk', 'holding']
         
         # Initialize memory handler using config if enabled
@@ -144,32 +146,53 @@ class ConversifyAgent(Agent):
         model_settings: ModelSettings
     ) -> AsyncIterable[rtc.AudioFrame]:
         """Cleans text stream and delegates to default TTS node."""
+        
+        # Collect text chunks first (required for both avatar and non-avatar modes)
+        text_chunks = []
+        async for chunk in text:
+            text_chunks.append(chunk)
+        
+        if not text_chunks:
+            logger.warning("No text chunks received for TTS")
+            return
+        
+        # Create a new async generator from collected chunks
+        async def text_stream():
+            for chunk in text_chunks:
+                yield chunk
+        
+        # When avatar is enabled, skip custom cleaning - let avatar handle it
+        if self.avatar_enabled:
+            logger.debug(f"Avatar enabled - streaming {len(text_chunks)} chunks to TTS without cleaning")
+            try:
+                async for frame in self.default.tts_node(self, text_stream(), model_settings):
+                    yield frame
+            except Exception as e:
+                logger.error(f"TTS node error with avatar: {e}", exc_info=True)
+            return
+        
+        # Normal processing when no avatar - apply text cleaning
         logger.debug("TTS node received text stream.")
         
         cleaned_text_chunks = []
-        
-        async for chunk in text:
-            # Process each chunk with the clean_text method
+        for chunk in text_chunks:
             cleaned_chunk = self.clean_text(chunk)
             if cleaned_chunk:
                 cleaned_text_chunks.append(cleaned_chunk)
 
         if cleaned_text_chunks:
             logger.debug(f"Sending {len(cleaned_text_chunks)} cleaned chunks to default TTS.")
-            async def text_stream():
+            async def cleaned_text_stream():
                 for cleaned_chunk in cleaned_text_chunks:
                     yield cleaned_chunk
             
-            # Pass self as the first parameter to the default.tts_node method
             try:
-                async for frame in self.default.tts_node(self, text_stream(), model_settings):
+                async for frame in self.default.tts_node(self, cleaned_text_stream(), model_settings):
                     yield frame
                 logger.debug("TTS node finished streaming audio frames.")
             except Exception as e:
                 logger.error(f"TTS node error: {e}", exc_info=True)
         else:
             logger.warning("No text content left after cleaning for TTS - skipping synthesis.")
-            # Return empty generator to avoid AudioEmitter errors
-            return
 
     

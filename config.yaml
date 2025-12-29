@@ -50,7 +50,7 @@ vision:
   model: "qwen2.5vl:3b"
   base_url: "http://localhost:11434/v1"
   api_key: "ollama"
-  video_frame_interval: 30.0  # Process frames every 30 seconds instead of every 1 second
+  video_frame_interval: 2.0  # Process frames every 2 seconds
 
 avatar:
   use: true

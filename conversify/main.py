@@ -164,7 +164,8 @@ async def entrypoint(ctx: JobContext, config: Dict[str, Any]):
     agent = ConversifyAgent(
         participant_identity=participant.identity,
         shared_state=shared_state,
-        config=config
+        config=config,
+        avatar_enabled=avatar_session is not None
     )
 
     # Register the shutdown callback 
@@ -177,6 +178,9 @@ async def entrypoint(ctx: JobContext, config: Dict[str, Any]):
         try:
             await avatar_session.start(session, room=ctx.room)
             logger.info("Avatar session started successfully.")
+            # Wait for avatar participant to be ready before continuing
+            logger.info("Waiting for avatar participant to join...")
+            await asyncio.sleep(2.0)  # Give avatar time to initialize
         except Exception as e:
             logger.error(f"Failed to start avatar session: {e}")
 
