@@ -94,10 +94,14 @@ class ConversifyAgent(Agent):
 
         user_text = last_message.content[0]
         
-        should_add_image = any(keyword in user_text.lower() for keyword in self.vision_keywords)
+        # change made for eiq connector image model
+        #should_add_image = any(keyword in user_text.lower() for keyword in self.vision_keywords)
+        should_add_image = True
 
         if should_add_image:
-            logger.info(f"Vision keyword found in '{user_text[:50]}...'. Adding image to context.")
+            # change made for eiq connector image model
+            #logger.info(f"Vision keyword found in '{user_text[:50]}...'. Adding image to context.")
+            logger.info(f"Vision enabled '{user_text[:50]}...'. Adding image to context.")
             if not isinstance(last_message.content, list):
                  last_message.content = [last_message.content] 
             last_message.content.append(ImageContent(image=latest_image))

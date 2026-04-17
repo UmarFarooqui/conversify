@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Dict, Any, Optional, Tuple
 
 from livekit import rtc
@@ -84,14 +85,14 @@ async def video_processing_loop(ctx: JobContext, shared_state: Dict[str, Any], v
         video_stream = rtc.VideoStream(video_track)
         logger.info(f"Starting video stream processing with interval {video_frame_interval}s.")
         
-        # Process the video stream
+        # Process the video stream - consume all frames, store only at interval
+        last_update = 0
         async for event in video_stream:
             if event and event.frame:
-                # Update the shared state with the latest frame
-                shared_state['latest_image'] = event.frame
-                
-            # Sleep to control processing rate
-            await asyncio.sleep(video_frame_interval)
+                now = time.monotonic()
+                if now - last_update >= video_frame_interval:
+                    shared_state['latest_image'] = event.frame
+                    last_update = now
             
     except asyncio.CancelledError:
         logger.info("Video processing task cancelled.")
