@@ -158,8 +158,18 @@ class KokoroTTSStream(tts.ChunkedStream):
         self._client = client
         self._opts = opts
 
-    async def _run(self, output_emitter=None):
-        """Run the TTS synthesis."""
+    async def _run(self, output_emitter) -> None:
+        """Run the TTS synthesis using the modern AudioEmitter API."""
+        request_id = utils.shortuuid()
+
+        # Initialize the emitter — this is the step the old code skipped
+        output_emitter.initialize(
+            request_id=request_id,
+            sample_rate=TTS_SAMPLE_RATE,
+            num_channels=TTS_CHANNELS,
+            mime_type="audio/pcm",
+        )
+
         oai_stream = self._client.audio.speech.with_streaming_response.create(
             input=self.input_text,
             model=self._opts.model,
@@ -169,35 +179,14 @@ class KokoroTTSStream(tts.ChunkedStream):
             timeout=httpx.Timeout(30, connect=self._conn_options.timeout),
         )
 
-        request_id = utils.shortuuid()
-
-        audio_bstream = utils.audio.AudioByteStream(
-            sample_rate=TTS_SAMPLE_RATE,
-            num_channels=TTS_CHANNELS,
-        )
-
-        logger.info(f"Kokoro -> converting text to audio")
+        logger.info("Kokoro -> converting text to audio")
 
         try:
             with find_time('TTS_inferencing'):
                 async with oai_stream as stream:
                     async for data in stream.iter_bytes():
-                        for frame in audio_bstream.write(data):
-                            self._event_ch.send_nowait(
-                                tts.SynthesizedAudio(
-                                    frame=frame,
-                                    request_id=request_id,
-                                )
-                            )
-                    # Flush any remaining data in the buffer
-                    for frame in audio_bstream.flush():
-                        self._event_ch.send_nowait(
-                            tts.SynthesizedAudio(
-                                frame=frame,
-                                request_id=request_id,
-                            )
-                        )
-
+                        output_emitter.push(data)
+                output_emitter.flush()
         except openai.APITimeoutError:
             raise APITimeoutError()
         except openai.APIStatusError as e:

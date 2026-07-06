@@ -20,7 +20,7 @@ stt:
 
 llm:
   base_url: "http://localhost:11434/v1"
-  model: "qwen2.5vl:3b"
+  model: "qwen3-vl:2b-instruct"
   api_key: "ollama"
   temperature: 0.7
   max_tokens: 256
@@ -47,13 +47,13 @@ vad:
 vision:
   use: true
   # Use same model for vision
-  model: "qwen2.5vl:3b"
+  model: "qwen3-vl:2b-instruct"
   base_url: "http://localhost:11434/v1"
   api_key: "ollama"
   video_frame_interval: 2.0  # Process frames every 2 seconds
 
 avatar:
-  use: true
+  use: false
   bithuman:
     api_secret: "BITHUMAN_API_SECRET"  # Set in .env.local as BITHUMAN_API_SECRET
     model: "expression"  # Options: 'expression' (dynamic) or 'essence' (predefined)
