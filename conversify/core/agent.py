@@ -128,6 +128,19 @@ class ConversifyAgent(Agent):
         cleaned = re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]+', '', cleaned)
         return cleaned
 
+    @staticmethod
+    def _prune_old_images(chat_ctx: llm.ChatContext) -> None:
+        """Keep only the most recent image in context; strip images from older messages."""
+        img_msgs = [
+            m for m in chat_ctx.items
+            if isinstance(getattr(m, "content", None), list)
+            and any(isinstance(c, ImageContent) for c in m.content)
+        ]
+        for m in img_msgs[:-1]:
+            m.content = [c for c in m.content if not isinstance(c, ImageContent)]
+        if len(img_msgs) > 1:
+            logger.debug(f"Pruned images from {len(img_msgs) - 1} older message(s).")
+
     async def llm_node(
         self,
         chat_ctx: llm.ChatContext,
@@ -140,6 +153,7 @@ class ConversifyAgent(Agent):
         # Only process image if vision is enabled in config
         if self.config['vision']['use']:
             self.process_image(chat_ctx)
+            self._prune_old_images(chat_ctx)
 
         async for chunk in Agent.default.llm_node(self, chat_ctx, tools, model_settings):
             yield chunk
