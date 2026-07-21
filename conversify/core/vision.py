@@ -87,11 +87,15 @@ async def video_processing_loop(ctx: JobContext, shared_state: Dict[str, Any], v
         
         # Process the video stream - consume all frames, store only at interval
         last_update = 0
+        frame_count = 0
         async for event in video_stream:
             if event and event.frame:
                 now = time.monotonic()
                 if now - last_update >= video_frame_interval:
+                    frame_count += 1
                     shared_state['latest_image'] = event.frame
+                    shared_state['latest_image_ts'] = now
+                    shared_state['latest_image_seq'] = frame_count
                     last_update = now
             
     except asyncio.CancelledError:

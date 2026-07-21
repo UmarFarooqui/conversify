@@ -1,6 +1,7 @@
 import logging
 import re
-import asyncio 
+import time
+import asyncio
 from typing import AsyncIterable, Dict, Any
 
 from livekit.agents import (
@@ -9,9 +10,9 @@ from livekit.agents import (
     FunctionTool, 
     ChatContext 
 )
-from livekit.agents.voice import ModelSettings 
-from livekit import rtc 
-from livekit.agents.llm.chat_context import ImageContent 
+from livekit.agents.voice import ModelSettings
+from livekit import rtc
+from livekit.agents.llm.chat_context import ImageContent, ChatMessage
 
 # from .memory import AgentMemoryManager
 
@@ -72,25 +73,28 @@ class ConversifyAgent(Agent):
         logger.info(f"Agent '{self.participant_identity}' exiting session.")
         await self.session.say(self.config['agent']['goodbye'])
 
-    def process_image(self, chat_ctx: llm.ChatContext):
-        """Checks for vision keywords and adds latest image from shared_state if applicable."""
+    def process_image(self, chat_ctx: llm.ChatContext) -> bool:
+        """Checks for vision keywords and adds latest image from shared_state if applicable.
+
+        Returns True if an image was appended to the last user message, else False.
+        """
         # Check if latest_image exists in shared_state
         if 'latest_image' not in self.shared_state:
             logger.warning("No 'latest_image' key found in shared_state")
-            return
-            
+            return False
+
         latest_image = self.shared_state['latest_image']
         if not latest_image:
             logger.debug("Latest image is None or empty")
-            return
+            return False
 
         if not chat_ctx.items:
-            return
+            return False
 
         last_message = chat_ctx.items[-1]
 
         if last_message.role != "user" or not last_message.content or not isinstance(last_message.content[0], str):
-            return
+            return False
 
         user_text = last_message.content[0]
         
@@ -101,12 +105,21 @@ class ConversifyAgent(Agent):
         if should_add_image:
             # change made for eiq connector image model
             #logger.info(f"Vision keyword found in '{user_text[:50]}...'. Adding image to context.")
-            logger.info(f"Vision enabled '{user_text[:50]}...'. Adding image to context.")
+            ts = self.shared_state.get('latest_image_ts')
+            seq = self.shared_state.get('latest_image_seq')
+            age = f"{time.monotonic() - ts:.1f}s" if ts is not None else "unknown"
+            logger.info(
+                f"Vision enabled '{user_text[:50]}...'. Adding image to context "
+                f"(frame seq={seq}, age={age}, obj_id={id(latest_image)})."
+            )
             if not isinstance(last_message.content, list):
-                 last_message.content = [last_message.content] 
+                 last_message.content = [last_message.content]
             last_message.content.append(ImageContent(image=latest_image))
             logger.debug("Successfully added ImageContent to the last message.")
-        
+            return True
+
+        return False
+
     @staticmethod
     def clean_text(text_chunk: str) -> str:
         """Cleans text by removing special tags, code blocks, markdown, and emojis."""
@@ -141,6 +154,29 @@ class ConversifyAgent(Agent):
         if len(img_msgs) > 1:
             logger.debug(f"Pruned images from {len(img_msgs) - 1} older message(s).")
 
+    def _trim_history_for_vision(self, chat_ctx: llm.ChatContext) -> llm.ChatContext:
+        """Build a minimal context for a vision turn: the system/developer
+        instructions plus only the current user message (which now carries the
+        live frame).
+
+        Dropping prior turns stops the small VLM from parroting its own earlier
+        scene descriptions from chat history instead of reading the current
+        image. Operates on a fresh ChatContext, leaving chat_ctx untouched.
+        """
+        items = chat_ctx.items
+        trimmed = [
+            m for m in items
+            if isinstance(m, ChatMessage) and m.role in ("system", "developer")
+        ]
+        last_user = next(
+            (m for m in reversed(items) if isinstance(m, ChatMessage) and m.role == "user"),
+            None,
+        )
+        if last_user is not None:
+            trimmed.append(last_user)
+        logger.debug(f"Vision turn: trimmed context from {len(items)} to {len(trimmed)} item(s).")
+        return llm.ChatContext(trimmed)
+
     async def llm_node(
         self,
         chat_ctx: llm.ChatContext,
@@ -149,11 +185,15 @@ class ConversifyAgent(Agent):
     ) -> AsyncIterable[llm.ChatChunk]:
         """Processes context via LLM, potentially adding image first. Delegates to default."""
         logger.debug(f"LLM node received context with {len(chat_ctx.items)} items.")
-        
+
         # Only process image if vision is enabled in config
         if self.config['vision']['use']:
-            self.process_image(chat_ctx)
+            image_added = self.process_image(chat_ctx)
             self._prune_old_images(chat_ctx)
+            # On a vision turn, optionally strip conversational history so the
+            # small VLM answers from the current frame, not its past replies.
+            if image_added and self.config['vision'].get('trim_history', True):
+                chat_ctx = self._trim_history_for_vision(chat_ctx)
 
         async for chunk in Agent.default.llm_node(self, chat_ctx, tools, model_settings):
             yield chunk

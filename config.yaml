@@ -65,6 +65,8 @@ vision:
   base_url: "http://localhost:11434/v1"
   api_key: "ollama"
   video_frame_interval: 2.0  # Process frames every 2 seconds
+  trim_history: true         # On vision turns, send only system prompt + current question + live frame
+                             # (drops prior turns so the small VLM re-reads the image instead of repeating past replies)
 
 avatar:
   use: false
