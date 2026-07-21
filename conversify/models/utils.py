@@ -21,6 +21,12 @@ WhisperModels = Literal[
     "deepdml/faster-whisper-large-v3-turbo-ct2",
 ]
 
+# Moonshine ONNX model names
+MoonshineModels = Literal[
+    "moonshine/base",
+    "moonshine/tiny",
+]
+
 # Text-to-Speech model types
 TTSModels = Literal[
     "tts-1", 

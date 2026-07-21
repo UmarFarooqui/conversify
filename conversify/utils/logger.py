@@ -54,7 +54,18 @@ def setup_logging(config: Dict[str, Any], project_root: str):
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
-    # --- Setup File Handler (If specified) --- 
+    # --- Quiet noisy third-party loggers ---
+    # These emit enormous DEBUG output (numba dumps whole bytecode listings,
+    # filelock/hf log every model-cache lock) that drowns the app's own logs and
+    # slows things down. Cap them at WARNING regardless of the app level.
+    for noisy in (
+        "numba", "numba.core", "numba.core.byteflow", "numba.core.ssa",
+        "numba.core.interpreter", "filelock", "huggingface_hub",
+        "urllib3", "matplotlib", "piper.voice", "asyncio",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # --- Setup File Handler (If specified) ---
     if log_file_abs:
         try:
             # Ensure log directory exists

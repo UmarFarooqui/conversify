@@ -34,8 +34,7 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.debug("bithuman plugin not available. Install with: pip install 'livekit-agents[bithuman,images]'")
 
-from .models.tts import KokoroTTS
-from .models.stt import WhisperSTT
+from .models.factory import build_stt, build_tts
 from .models.llm import OpenaiLLM
 from .core.vision import video_processing_loop
 from .core.agent import ConversifyAgent
@@ -96,9 +95,9 @@ async def entrypoint(ctx: JobContext, config: Dict[str, Any]):
     # Setup the AgentSession with configured plugins
     session = AgentSession(
         vad=vad,
-        llm=OpenaiLLM(client=llm_client, config=config), 
-        stt=WhisperSTT(config=config),
-        tts=KokoroTTS(config=config),
+        llm=OpenaiLLM(client=llm_client, config=config),
+        stt=build_stt(config),
+        tts=build_tts(config),
         turn_detection=MultilingualModel() if config['agent']['use_eou'] else NOT_GIVEN
     )
     logger.info("AgentSession created.")

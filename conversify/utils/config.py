@@ -76,18 +76,34 @@ class ConfigManager:
         else:
             logger.info("Memory usage is disabled in config.")
         
-        # Handle STT paths - check if they should be absolute or need resolution
+        # Handle STT paths - resolve relative paths for whichever provider blocks
+        # are present (both may coexist to allow A/B switching via stt.provider).
         stt_cfg = self.config.get('stt', {})
-        whisper_cfg = stt_cfg['whisper']
-        
-        # Check if model_cache_directory is relative and needs resolution
-        if 'model_cache_directory' in whisper_cfg and not os.path.isabs(whisper_cfg['model_cache_directory']):
-            whisper_cfg['model_cache_directory'] = self._resolve_path(whisper_cfg['model_cache_directory'])
-        
-        # Check if warmup_audio is relative and needs resolution
-        if 'warmup_audio' in whisper_cfg and not os.path.isabs(whisper_cfg['warmup_audio']):
-            whisper_cfg['warmup_audio'] = self._resolve_path(whisper_cfg['warmup_audio'])
-        
+
+        whisper_cfg = stt_cfg.get('whisper')
+        if whisper_cfg:
+            # Check if model_cache_directory is relative and needs resolution
+            if 'model_cache_directory' in whisper_cfg and not os.path.isabs(whisper_cfg['model_cache_directory']):
+                whisper_cfg['model_cache_directory'] = self._resolve_path(whisper_cfg['model_cache_directory'])
+
+            # Check if warmup_audio is relative and needs resolution
+            if whisper_cfg.get('warmup_audio') and not os.path.isabs(whisper_cfg['warmup_audio']):
+                whisper_cfg['warmup_audio'] = self._resolve_path(whisper_cfg['warmup_audio'])
+
+        moonshine_cfg = stt_cfg.get('moonshine')
+        if moonshine_cfg:
+            if moonshine_cfg.get('model_cache_directory') and not os.path.isabs(moonshine_cfg['model_cache_directory']):
+                moonshine_cfg['model_cache_directory'] = self._resolve_path(moonshine_cfg['model_cache_directory'])
+
+        # Handle TTS paths for local providers (Piper).
+        tts_cfg = self.config.get('tts', {})
+        piper_cfg = tts_cfg.get('piper')
+        if piper_cfg:
+            if piper_cfg.get('model') and not os.path.isabs(piper_cfg['model']):
+                piper_cfg['model'] = self._resolve_path(piper_cfg['model'])
+            if piper_cfg.get('model_cache_directory') and not os.path.isabs(piper_cfg['model_cache_directory']):
+                piper_cfg['model_cache_directory'] = self._resolve_path(piper_cfg['model_cache_directory'])
+
         # Add logging path resolution
         logging_cfg = self.config['logging']
         log_file_rel = logging_cfg['file']

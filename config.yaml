@@ -10,6 +10,12 @@ agent:
   allow_interruptions: True                           # reset tts on user iterruption
 
 stt:
+  provider: "moonshine"                   # "moonshine" (active) | "whisper" (legacy, for A/B)
+  moonshine:
+    model: "moonshine/base"               # "moonshine/base" or "moonshine/tiny"
+    device: "cpu"                          # informational: moonshine_onnx runs on the onnxruntime CPU provider
+    language: "en"                         # Moonshine is English-only; used to tag the transcript
+    model_cache_directory: "./models/moonshine"  # points HF_HOME/HF_HUB_CACHE (see MoonshineSTT note)
   whisper:
     model: "small"
     device: "cpu" # Changed from cuda
@@ -19,21 +25,29 @@ stt:
     warmup_audio: ""
 
 llm:
-  base_url: "http://localhost:8081/v1"
-  model: "/home/uafarooq/rynn/RynnBrain-2B.Q4_K_M.gguf"
-  api_key: "llamacpp"
+  base_url: "http://localhost:11434/v1"
+  model: "qwen3-vl:2b-instruct"
+  api_key: "ollama"
   temperature: 0.7
-  max_tokens: 200
+  max_tokens: 256
   parallel_tool_calls: false
   tool_choice: "auto"
 
 tts:
+  provider: "piper"                        # "piper" (active) | "kokoro" (legacy, for A/B)
+  piper:
+    model: "./models/piper/en/en_US/amy/medium/en_US-amy-medium.onnx"  # .onnx.json config must sit beside it
+    model_cache_directory: "./models/piper"
+    speaker_id: null                       # only used for multi-speaker voices; amy is single-speaker
+    length_scale: 1.0                      # speed control: < 1 faster, > 1 slower (inverse of kokoro speed)
+    noise_scale: 0.667
+    noise_w: 0.8
   kokoro:
     base_url: "http://localhost:8880/v1"
     voice: "af_bella"
     model: "kokoro"
     speed: 1.0
-    api_key: "not-needed"   
+    api_key: "not-needed"
 
 vad:
   min_speech_duration: 0.20             # Minimum duration (seconds) for speech detection
@@ -47,9 +61,9 @@ vad:
 vision:
   use: true
   # Use same model for vision
-  model: "/home/uafarooq/rynn/RynnBrain-2B.Q4_K_M.gguf"
-  base_url: "http://localhost:8081/v1"
-  api_key: "llamacpp"
+  model: "qwen3-vl:2b-instruct"
+  base_url: "http://localhost:11434/v1"
+  api_key: "ollama"
   video_frame_interval: 2.0  # Process frames every 2 seconds
 
 avatar:

@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import logging
 import os
@@ -6,7 +7,6 @@ from typing import Optional, Dict, Any
 
 import numpy as np
 import soundfile as sf
-from faster_whisper import WhisperModel
 
 from livekit import rtc
 from livekit.agents import (
@@ -14,11 +14,31 @@ from livekit.agents import (
     APIConnectOptions,
     stt,
 )
-from livekit.agents.utils import AudioBuffer
+from livekit.agents.types import NOT_GIVEN, NotGivenOr
+from livekit.agents.utils import AudioBuffer, combine_frames
 
-from .utils import WhisperModels, find_time
+from .utils import MoonshineModels, WhisperModels, find_time
 
 logger = logging.getLogger(__name__)
+
+# Moonshine (and Whisper) operate on 16 kHz mono audio.
+MOONSHINE_SAMPLE_RATE = 16000
+
+
+def _resample_pcm(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+    """Resample mono float32 audio using scipy's polyphase filter.
+
+    Chosen over librosa.resample to avoid a numba JIT compile on first use.
+    """
+    if src_rate == dst_rate:
+        return samples
+    from math import gcd
+    from scipy.signal import resample_poly
+
+    g = gcd(int(src_rate), int(dst_rate))
+    up = int(dst_rate) // g
+    down = int(src_rate) // g
+    return resample_poly(samples, up, down).astype(np.float32)
 
 @dataclass
 class WhisperOptions:
@@ -74,9 +94,14 @@ class WhisperSTT(stt.STT):
 
     def _initialize_model(self):
         """Initialize the Whisper model."""
+        # Imported lazily so that merely importing this module (e.g. when the
+        # active STT provider is Moonshine) does not pull in faster_whisper and
+        # its huggingface_hub side effects.
+        from faster_whisper import WhisperModel
+
         device = self._opts.device
         compute_type = self._opts.compute_type
-        
+
         logger.info(f"Using device: {device}, with compute: {compute_type}")
         
         # Ensure cache directories exist
@@ -201,6 +226,180 @@ class WhisperSTT(stt.STT):
                     stt.SpeechData(
                         text=full_text or "",
                         language=options.language,
+                    )
+                ],
+            )
+
+        except Exception as e:
+            logger.error(f"Error in speech recognition: {e}", exc_info=True)
+            raise APIConnectionError() from e
+
+
+@dataclass
+class MoonshineOptions:
+    """Configuration options for MoonshineSTT."""
+    language: str
+    model: MoonshineModels | str
+    device: str | None
+    model_cache_directory: str | None
+
+
+class MoonshineSTT(stt.STT):
+    """STT implementation using the Moonshine ONNX model.
+
+    Moonshine is a non-streaming, CPU-friendly recognizer. As with WhisperSTT we
+    declare ``streaming=False``/``interim_results=False`` so LiveKit wraps this in
+    its VAD-based ``StreamAdapter`` (the Silero VAD provided in prewarm), keeping
+    the existing endpointing/turn-detection wiring intact.
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+    ):
+        """Initialize the MoonshineSTT instance.
+
+        Args:
+            config: Configuration dictionary (from config.yaml)
+        """
+        super().__init__(
+            capabilities=stt.STTCapabilities(streaming=False, interim_results=False)
+        )
+
+        stt_config = config['stt']['moonshine']
+
+        language = stt_config['language']
+        model = stt_config['model']
+        device = stt_config.get('device')
+        model_cache_directory = stt_config.get('model_cache_directory')
+
+        self._opts = MoonshineOptions(
+            language=language,
+            model=model,
+            device=device,
+            model_cache_directory=model_cache_directory,
+        )
+
+        self._model = None
+        self._initialize_model()
+
+    def _initialize_model(self):
+        """Load the Moonshine ONNX model once, at construction time."""
+        # moonshine_onnx downloads its weights via huggingface_hub and does NOT
+        # accept a cache-directory argument. The only way to honor
+        # ``model_cache_directory`` is to point the HF cache env vars at it
+        # *before the first import of moonshine_onnx (or huggingface_hub)*.
+        # We set them here and import moonshine_onnx lazily right after; if
+        # huggingface_hub was already imported earlier in the process (e.g. by
+        # another provider) these will be ignored, so for a guaranteed cache
+        # location export HF_HOME / HF_HUB_CACHE in the environment instead.
+        cache_dir = self._opts.model_cache_directory
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+            os.environ.setdefault("HF_HOME", cache_dir)
+            os.environ.setdefault("HF_HUB_CACHE", cache_dir)
+            logger.info(f"Using model cache directory (HF cache): {cache_dir}")
+
+        import moonshine_onnx
+
+        self._moonshine_onnx = moonshine_onnx
+        logger.info(f"Loading Moonshine model '{self._opts.model}' (device={self._opts.device})")
+        # onnxruntime selects the CPU provider by default; the `device` option is
+        # informational here since moonshine_onnx does not expose provider choice.
+        self._model = moonshine_onnx.MoonshineOnnxModel(model_name=str(self._opts.model))
+        logger.info("Moonshine model loaded successfully")
+        self._warmup()
+
+    def _warmup(self) -> None:
+        """Run one throwaway transcription so the first real turn isn't slow.
+
+        Warms the ONNX encoder/decoder graphs (and, via _recognize_impl's path on
+        the first live call, keeps latency predictable).
+        """
+        try:
+            with find_time('STT_warmup'):
+                # 0.5 s of silence at 16 kHz satisfies Moonshine's 0.1s..64s bound.
+                silence = np.zeros(MOONSHINE_SAMPLE_RATE // 2, dtype=np.float32)
+                self._transcribe(silence)
+            logger.info("Moonshine warmup complete")
+        except Exception as e:
+            logger.warning(f"Moonshine warmup skipped: {e}")
+
+    def _transcribe(self, audio: np.ndarray) -> str:
+        """Run the synchronous, CPU-bound Moonshine transcription.
+
+        Args:
+            audio: 16 kHz mono float32 samples in [-1, 1]
+
+        Returns:
+            The first transcription string, or "" if none was produced.
+        """
+        # transcribe() accepts a numpy array directly (no temp WAV needed) and a
+        # preloaded model object, and returns a list of strings.
+        results = self._moonshine_onnx.transcribe(audio, self._model)
+        return results[0] if results else ""
+
+    async def _recognize_impl(
+        self,
+        buffer: AudioBuffer,
+        *,
+        language: NotGivenOr[str] = NOT_GIVEN,
+        conn_options: APIConnectOptions,
+    ) -> stt.SpeechEvent:
+        """Implement speech recognition.
+
+        Args:
+            buffer: Audio buffer delivered by LiveKit (int16 at the room's rate)
+            language: Language override (Moonshine is English-only; used for tagging)
+            conn_options: Connection options
+
+        Returns:
+            Speech recognition event with a single FINAL_TRANSCRIPT alternative
+        """
+        try:
+            lang = language if isinstance(language, str) else self._opts.language
+
+            # Merge all frames of the utterance into one, then read the real
+            # sample rate from the frame rather than assuming it.
+            frame = combine_frames(buffer)
+            src_rate = frame.sample_rate
+
+            # int16 -> float32 normalized to [-1, 1]
+            samples = np.frombuffer(frame.data, dtype=np.int16).astype(np.float32) / 32768.0
+
+            # Downmix to mono if the frame carries multiple channels.
+            if frame.num_channels > 1:
+                samples = samples.reshape(-1, frame.num_channels).mean(axis=1)
+
+            # Resample to 16 kHz only if needed. We use scipy's polyphase
+            # resampler rather than librosa.resample: librosa's default path
+            # pulls in numba and JIT-compiles on the first call, which stalls the
+            # very first recognition for many seconds (and floods DEBUG logs).
+            if src_rate != MOONSHINE_SAMPLE_RATE:
+                samples = _resample_pcm(samples, src_rate, MOONSHINE_SAMPLE_RATE)
+
+            # Moonshine only accepts 0.1s..64s segments; skip anything shorter.
+            duration = samples.shape[0] / MOONSHINE_SAMPLE_RATE
+            if duration < 0.1:
+                logger.debug(f"Audio too short for Moonshine ({duration:.3f}s), returning empty transcript")
+                return stt.SpeechEvent(
+                    type=stt.SpeechEventType.FINAL_TRANSCRIPT,
+                    alternatives=[stt.SpeechData(text="", language=lang)],
+                )
+
+            logger.info(f"Received audio ({duration:.2f}s @ {src_rate}Hz), transcribing (Moonshine)")
+            # transcribe() is synchronous and CPU-bound: run it off the event loop.
+            loop = asyncio.get_event_loop()
+            with find_time('STT_inference'):
+                full_text = await loop.run_in_executor(None, self._transcribe, samples)
+            logger.info(f"Moonshine transcript: {full_text!r}")
+
+            return stt.SpeechEvent(
+                type=stt.SpeechEventType.FINAL_TRANSCRIPT,
+                alternatives=[
+                    stt.SpeechData(
+                        text=full_text or "",
+                        language=lang,
                     )
                 ],
             )
