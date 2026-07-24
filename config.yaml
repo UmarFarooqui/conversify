@@ -25,9 +25,9 @@ stt:
     warmup_audio: ""
 
 llm:
-  base_url: "http://localhost:11434/v1"
-  model: "qwen3-vl:2b-instruct"
-  api_key: "ollama"
+  base_url: "http://192.168.10.187:8000/v1"
+  model: "Qwen2.5-VL-7B-Instruct"
+  api_key: "not-needed"
   temperature: 0.7
   max_tokens: 256
   parallel_tool_calls: false
@@ -61,9 +61,9 @@ vad:
 vision:
   use: true
   # Use same model for vision
-  model: "qwen3-vl:2b-instruct"
-  base_url: "http://localhost:11434/v1"
-  api_key: "ollama"
+  model: "Qwen2.5-VL-7B-Instruct"
+  base_url: "http://192.168.10.187:8000/v1"
+  api_key: "not-needed"
   video_frame_interval: 2.0  # Process frames every 2 seconds
   trim_history: true         # On vision turns, send only system prompt + current question + live frame
                              # (drops prior turns so the small VLM re-reads the image instead of repeating past replies)
