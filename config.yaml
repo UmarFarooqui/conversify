@@ -25,18 +25,18 @@ stt:
     warmup_audio: ""
 
 llm:
-  base_url: "http://192.168.10.187:8000/v1"
-  model: "Qwen2.5-VL-7B-Instruct"
+  base_url: "http://192.168.1.41:8000/v1"
+  model: "qwen2.5-multirope-3B"
   api_key: "not-needed"
   temperature: 0.7
   max_tokens: 256
   parallel_tool_calls: false
-  tool_choice: "auto"
+  tool_choice: "none"
 
 tts:
   provider: "piper"                        # "piper" (active) | "kokoro" (legacy, for A/B)
   piper:
-    model: "./models/piper/en/en_US/amy/medium/en_US-amy-medium.onnx"  # .onnx.json config must sit beside it
+    model: "./models/piper/en_US-amy-medium.onnx"  # .onnx.json config must sit beside it
     model_cache_directory: "./models/piper"
     speaker_id: null                       # only used for multi-speaker voices; amy is single-speaker
     length_scale: 1.0                      # speed control: < 1 faster, > 1 slower (inverse of kokoro speed)
@@ -61,8 +61,8 @@ vad:
 vision:
   use: true
   # Use same model for vision
-  model: "Qwen2.5-VL-7B-Instruct"
-  base_url: "http://192.168.10.187:8000/v1"
+  model: "qwen2.5-multirope-3B"
+  base_url: "http://192.168.1.41:8000/v1"
   api_key: "not-needed"
   video_frame_interval: 2.0  # Process frames every 2 seconds
   trim_history: true         # On vision turns, send only system prompt + current question + live frame
