@@ -5,14 +5,14 @@ agent:
   goodbye: "Goodbye! Have a great day!"
   default_participant_identity: "identity-qfXx"
   use_eou: false                                      # livekit turn detection
-  use_background_noise_removal: true                  # uses Krisp BVC noise cancellation
+  use_background_noise_removal: false                  # uses Krisp BVC noise cancellation
   use_background_audio: false                         # plays office background audio and keyboard typing sound while the agent speaks
   allow_interruptions: True                           # reset tts on user iterruption
 
 stt:
   provider: "moonshine"                   # "moonshine" (active) | "whisper" (legacy, for A/B)
   moonshine:
-    model: "moonshine/base"               # "moonshine/base" or "moonshine/tiny"
+    model: "moonshine/tiny"               # "moonshine/base" or "moonshine/tiny"
     device: "cpu"                          # informational: moonshine_onnx runs on the onnxruntime CPU provider
     language: "en"                         # Moonshine is English-only; used to tag the transcript
     model_cache_directory: "./models/moonshine"  # points HF_HOME/HF_HUB_CACHE (see MoonshineSTT note)
@@ -25,7 +25,7 @@ stt:
     warmup_audio: ""
 
 llm:
-  base_url: "http://192.168.1.41:8000/v1"
+  base_url: "http://127.0.0.1:8000/v1"
   model: "qwen2.5-multirope-3B"
   api_key: "not-needed"
   temperature: 0.7
@@ -62,9 +62,9 @@ vision:
   use: true
   # Use same model for vision
   model: "qwen2.5-multirope-3B"
-  base_url: "http://192.168.1.41:8000/v1"
+  base_url: "http://127.0.0.1:8000/v1"
   api_key: "not-needed"
-  video_frame_interval: 2.0  # Process frames every 2 seconds
+  video_frame_interval: 3600.0  # Process frames every 2 seconds
   trim_history: true         # On vision turns, send only system prompt + current question + live frame
                              # (drops prior turns so the small VLM re-reads the image instead of repeating past replies)
 
@@ -85,9 +85,9 @@ embedding:
   vllm_model_name: "mixedbread-ai/mxbai-embed-large-v1"                             
 
 worker:
-  job_memory_warn_mb: 1900              
-  load_threshold: 1.0                   
-  job_memory_limit_mb: 10000            
+  job_memory_warn_mb: 900              
+  load_threshold: 0.75                   
+  job_memory_limit_mb: 2000            
 
 logging:
   level: "DEBUG"                         
