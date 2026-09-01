@@ -5,7 +5,7 @@ agent:
   goodbye: "Goodbye! Have a great day!"
   default_participant_identity: "identity-qfXx"
   use_eou: false                                      # livekit turn detection
-  use_background_noise_removal: false                  # uses Krisp BVC noise cancellation
+  use_background_noise_removal: false                 # uses Krisp BVC noise cancellation
   use_background_audio: false                         # plays office background audio and keyboard typing sound while the agent speaks
   allow_interruptions: True                           # reset tts on user iterruption
 
@@ -64,7 +64,9 @@ vision:
   model: "qwen2.5-multirope-3B"
   base_url: "http://127.0.0.1:8000/v1"
   api_key: "not-needed"
-  video_frame_interval: 3600.0  # Process frames every 2 seconds
+  video_frame_interval: 1.0  # How often the newest frame is cached for the next vision turn.
+                             # This only refreshes a cached reference; it does NOT trigger
+                             # inference, so a short interval costs nothing on the board.
   trim_history: true         # On vision turns, send only system prompt + current question + live frame
                              # (drops prior turns so the small VLM re-reads the image instead of repeating past replies)
 

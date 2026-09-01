@@ -46,7 +46,20 @@ class ConversifyAgent(Agent):
         self.config = config 
         self.shared_state = shared_state
         self.avatar_enabled = avatar_enabled  # Track if avatar is being used
-        self.vision_keywords = ['see', 'look', 'picture', 'image', 'visual', 'color', 'this', 'object', 'view', 'frame', 'screen', 'desk', 'holding']
+        # Substring-matched against the lowercased user turn to decide whether a
+        # turn is worth the 20-35s vision path. Phrases are used where the bare
+        # word is too common in ordinary speech ('see' -> 'you see' keeps "what
+        # can you see" but drops "I see"; 'look at' keeps "look at the camera"
+        # but drops "look up the weather"). Bare 'this' is deliberately absent:
+        # it fired on "is this correct?" and cost a vision turn for nothing.
+        self.vision_keywords = [
+            # phrases - the bare word is too common on its own
+            'you see', 'look at', 'looking at', 'take a look', 'in front of me',
+            'this image', 'this picture', 'this thing',
+            # single words - strongly visual already
+            'camera', 'picture', 'photo', 'image', 'visual', 'color', 'colour',
+            'screen', 'desk', 'holding', 'wearing', 'object', 'scene', 'room',
+        ]
         
         # Initialize memory handler using config if enabled
         self.memory_handler = None
@@ -78,16 +91,6 @@ class ConversifyAgent(Agent):
 
         Returns True if an image was appended to the last user message, else False.
         """
-        # Check if latest_image exists in shared_state
-        if 'latest_image' not in self.shared_state:
-            logger.warning("No 'latest_image' key found in shared_state")
-            return False
-
-        latest_image = self.shared_state['latest_image']
-        if not latest_image:
-            logger.debug("Latest image is None or empty")
-            return False
-
         if not chat_ctx.items:
             return False
 
@@ -97,28 +100,36 @@ class ConversifyAgent(Agent):
             return False
 
         user_text = last_message.content[0]
-        
-        # change made for eiq connector image model
-        #should_add_image = any(keyword in user_text.lower() for keyword in self.vision_keywords)
-        should_add_image = True
 
-        if should_add_image:
-            # change made for eiq connector image model
-            #logger.info(f"Vision keyword found in '{user_text[:50]}...'. Adding image to context.")
-            ts = self.shared_state.get('latest_image_ts')
-            seq = self.shared_state.get('latest_image_seq')
-            age = f"{time.monotonic() - ts:.1f}s" if ts is not None else "unknown"
-            logger.info(
-                f"Vision enabled '{user_text[:50]}...'. Adding image to context "
-                f"(frame seq={seq}, age={age}, obj_id={id(latest_image)})."
+        # Gate on vision keywords before touching the frame. A vision turn costs
+        # 20-35s on the i.MX 8M Plus against ~2.4s for text, so only pay it when
+        # the user is actually asking about what the camera sees.
+        lowered = user_text.lower()
+        matched = next((kw for kw in self.vision_keywords if kw in lowered), None)
+        if not matched:
+            logger.debug(f"No vision keyword in '{user_text[:50]}...'. Answering text-only.")
+            return False
+
+        # Only past the gate does a missing frame mean something went wrong.
+        latest_image = self.shared_state.get('latest_image')
+        if not latest_image:
+            logger.warning(
+                f"Vision keyword '{matched}' found but no frame available in shared_state."
             )
-            if not isinstance(last_message.content, list):
-                 last_message.content = [last_message.content]
-            last_message.content.append(ImageContent(image=latest_image))
-            logger.debug("Successfully added ImageContent to the last message.")
-            return True
+            return False
 
-        return False
+        ts = self.shared_state.get('latest_image_ts')
+        seq = self.shared_state.get('latest_image_seq')
+        age = f"{time.monotonic() - ts:.1f}s" if ts is not None else "unknown"
+        logger.info(
+            f"Vision keyword '{matched}' found in '{user_text[:50]}...'. Adding image to context "
+            f"(frame seq={seq}, age={age}, obj_id={id(latest_image)})."
+        )
+        if not isinstance(last_message.content, list):
+            last_message.content = [last_message.content]
+        last_message.content.append(ImageContent(image=latest_image))
+        logger.debug("Successfully added ImageContent to the last message.")
+        return True
 
     @staticmethod
     def clean_text(text_chunk: str) -> str:
